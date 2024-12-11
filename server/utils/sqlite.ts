@@ -75,32 +75,6 @@ export class MessageManager {
       error.message.includes('no response');
   }
 
-  private compress(data: string): string {
-    try {
-      if (typeof data !== 'string') {
-        throw new TypeError('Input must be a string');
-      }
-      const textEncoder = new TextEncoder();
-      const compressedData = Bun.deflateSync(textEncoder.encode(data));
-      return Buffer.from(compressedData).toString('base64');
-    } catch (error: any) {
-      throw new Error(`Compression failed: ${error.message}`);
-    }
-  }
-
-  private decompress(data: string): string {
-    try {
-      if (typeof data !== 'string') {
-        throw new TypeError('Input must be a string');
-      }
-      const compressedData = Buffer.from(data, 'base64');
-      const decompressedData = Bun.inflateSync(new Uint8Array(compressedData));
-      return new TextDecoder().decode(decompressedData);
-    } catch (error: any) {
-      throw new Error(`Decompression failed: ${error.message}`);
-    }
-  }
-
   public async messageExists(messageId: number): Promise<boolean> {
     return this.retry(async () => {
       this.validateMessageId(messageId);
@@ -138,17 +112,7 @@ export class MessageManager {
         LIMIT 1
       `);
 
-      const message = stmt.get(messageId) as DataMessages | null;
-
-      if (!message) return null;
-
-      return {
-        id: message.id,
-        message_id: message.message_id,
-        content: this.decompress(message.content),
-        created_at: message.created_at,
-        updated_at: message.updated_at
-      };
+      return stmt.get(messageId) as DataMessages | null;
     }, `getMessage_${messageId}`);
   }
 
@@ -157,47 +121,37 @@ export class MessageManager {
       const stmt = this.database.prepare(
         'SELECT rowid as id, message_id, content, created_at, updated_at FROM messages'
       );
-      const messages = stmt.all() as Array<DataMessages>;
-
-      return messages.map(message => ({
-        id: message.id,
-        message_id: message.message_id,
-        content: this.decompress(message.content),
-        created_at: message.created_at,
-        updated_at: message.updated_at
-      }));
+      return stmt.all() as Array<DataMessages>;
     }, 'getMessages');
   }
 
-  public async insertMessage(messageId: number, content: string): Promise<void> {
+  public async insertMessage(messageId: number, content: string, createdTimestamp: number, updatedTimestamp: number): Promise<void> {
     return this.retry(async () => {
       this.validateMessageId(messageId);
       this.validateContent(content);
+      this.validateTimestamps(createdTimestamp, updatedTimestamp);
 
       const exists = await this.messageExists(messageId);
       if (exists) {
         throw new Error(`Message with ID ${messageId} already exists`);
       }
 
-      const compressedContent = this.compress(content);
-      const now = Date.now();
-
       this.database.transaction(() => {
         const stmt = this.database.prepare(`
           INSERT INTO messages (message_id, content, created_at, updated_at) 
           VALUES (?, ?, ?, ?)
         `);
-        stmt.run(messageId, compressedContent, now, now);
+        stmt.run(messageId, content, createdTimestamp, updatedTimestamp);
       })();
     }, `insertMessage_${messageId}`);
   }
+
 
   public async updateMessage(messageId: number, content: string): Promise<void> {
     return this.retry(async () => {
       this.validateMessageId(messageId);
       this.validateContent(content);
 
-      const compressedContent = this.compress(content);
       const now = Date.now();
 
       const result = this.database.transaction(() => {
@@ -206,7 +160,7 @@ export class MessageManager {
           SET content = ?, updated_at = ? 
           WHERE message_id = ?
         `);
-        return stmt.run(compressedContent, now, messageId);
+        return stmt.run(content, now, messageId);
       })();
 
       if (result.changes === 0) {
@@ -218,6 +172,19 @@ export class MessageManager {
   private validateMessageId(messageId: number): void {
     if (!Number.isInteger(messageId) || messageId <= 0 || messageId > Number.MAX_SAFE_INTEGER) {
       throw new Error('Invalid message ID: must be a positive integer within safe range');
+    }
+  }
+  private validateTimestamps(createdAt: number, updatedAt: number): void {
+    if (!Number.isInteger(createdAt) || createdAt <= 0) {
+      throw new Error('Invalid created_at timestamp: must be a positive integer');
+    }
+
+    if (!Number.isInteger(updatedAt) || updatedAt <= 0) {
+      throw new Error('Invalid updated_at timestamp: must be a positive integer');
+    }
+
+    if (updatedAt < createdAt) {
+      throw new Error('updated_at timestamp cannot be earlier than created_at timestamp');
     }
   }
 
@@ -245,7 +212,6 @@ export class MessageManager {
   }
 }
 
-// 单例模式的工厂函数
 let messageManagerInstance: MessageManager | null = null;
 let databaseInstance: Database | null = null;
 
@@ -259,15 +225,14 @@ export const getMessageManager = async (): Promise<MessageManager> => {
   return messageManagerInstance;
 };
 
-// 导出异步工具函数
 export const getMessages = async (): Promise<DataMessages[]> => {
   const manager = await getMessageManager();
   return manager.getMessages();
 };
 
-export const insertMessage = async (messageId: number, content: string): Promise<void> => {
+export const insertMessage = async (messageId: number, content: string, createdTimestamp: number, updatedTimestamp: number): Promise<void> => {
   const manager = await getMessageManager();
-  return manager.insertMessage(messageId, content);
+  return manager.insertMessage(messageId, content, createdTimestamp, updatedTimestamp);
 };
 
 export const deleteMessage = async (messageId: number): Promise<void> => {

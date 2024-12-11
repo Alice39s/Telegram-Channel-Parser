@@ -1,12 +1,14 @@
-# Telegram Channel Praser
+# Telegram Channel Parser
 
 <div align="center">
   <img src="./assets/banner.png" alt="banner" style="width: 75%;">
 </div>
 
-将 *Telegram* 的频道内的消息转换为 Base64 编码后的图片 + *Markdown* 文字的内容，并存储到本地 SQLite 数据库。
-内置 *HTTP* 服务器，可通过 *RESTful API* 灵活调用。
-基于 *Telegram MTProto* 协议，相比于 Telegram Bot API 可以更加灵活的导入、监听频道的所有消息。
+将 *Telegram* 的频道内的消息转换为 Base64 编码后的图片 + *Markdown* 富文本内容，并存储到本地 SQLite 数据库。
+
+内置 *RESTful API 接口*，LZMA2 压缩后仅 ~20MB 大小的二进制，无需安装环境，开箱即用。
+
+基于 *Telegram MTProto* 协议，相比于 Telegram Bot API 可以实现更加灵活的同步频道中的所有消息。
 
 
 ## :sparkles: 主要特性

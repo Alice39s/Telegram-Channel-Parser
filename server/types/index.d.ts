@@ -13,4 +13,5 @@ interface Router {
   handler: (c: Context) => HandlerResponse;
 }
 
-export { DataMessages, Router }
+
+export { DataMessages, Router, ImageConfig }

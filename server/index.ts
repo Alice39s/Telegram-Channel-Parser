@@ -111,8 +111,14 @@ const checkDatabase = async () => {
       break;
     }
     messages.sort((a, b) => a.message_id - b.message_id);
-    for (const message of messages) {
-      SQLite.insertMessage(message.message_id, JSON.stringify(message.content));
+    const now = Date.now();
+    for (const { message_id, content } of messages) {
+      await SQLite.insertMessage(
+        message_id,
+        JSON.stringify(content),
+        content.createDate,
+        content.editedDate ?? now
+      );
     }
     logger.info("Fetch messages done");
   } else {

@@ -3,6 +3,7 @@ import { Api } from "telegram";
 import { client, logger } from "..";
 import { NewMessageEvent } from "telegram/events";
 import type { DeletedMessageEvent } from "telegram/events/DeletedMessage";
+import sharp from "sharp";
 
 import * as SQLite from "./sqlite";
 
@@ -115,14 +116,32 @@ const parseMessageToMarkdown = (message: Api.Message) => {
 };
 
 const parsePhotoFromMessage = async (message: Api.Message) => {
-  if (message.media instanceof Api.MessageMediaPhoto) {
-    if (message.media.photo instanceof Api.Photo) {
-      const result = await client.downloadMedia(message);
-      // @TODO Support media upload
-      return "data:image/jpeg;base64," + (result as Buffer).toString("base64");
-    }
+  if (!(message.media instanceof Api.MessageMediaPhoto) ||
+    !(message.media.photo instanceof Api.Photo)) {
+    return "";
   }
-  return "";
+
+  try {
+    const jpegBuffer = await client.downloadMedia(message);
+    if (!jpegBuffer) return "";
+
+    if (Bun.env.IMAGE_ENCODE_FORMAT === 'avif') {
+      const avifBuffer = await sharp(jpegBuffer)
+        .avif({
+          quality: parseInt(Bun.env.IMAGE_QUALITY ?? "80"),
+          effort: parseInt(Bun.env.IMAGE_EFFORT_LEVEL ?? "4"),
+        })
+        .toBuffer();
+
+      return `data:image/avif;base64,${avifBuffer.toString('base64')}`;
+    }
+
+    return `data:image/jpeg;base64,${jpegBuffer.toString('base64')}`;
+
+  } catch (error) {
+    console.error('Error processing photo:', error);
+    return "";
+  }
 };
 
 const parseMessage = async (messages: Api.Message[]) => {
@@ -151,6 +170,7 @@ export const getMessages = async (minId: number, maxId: number) => {
   });
   return parseMessage(result);
 };
+
 export const handleNewMessage = async (event: NewMessageEvent) => {
   const message = event.message;
   if (message.chat instanceof Api.Channel) {
@@ -159,11 +179,13 @@ export const handleNewMessage = async (event: NewMessageEvent) => {
 
     logger.info(`New message: ${message.id}`);
     const messages = await parseMessage([message]);
+    const now = Date.now();
     for (const message of messages) {
-      SQLite.insertMessage(message.message_id, JSON.stringify(message.content));
+      SQLite.insertMessage(message.message_id, JSON.stringify(message.content), now, now);
     }
   }
 };
+
 export const handleEditedMessage = async (event: NewMessageEvent) => {
   const message = event.message;
   if (message.chat instanceof Api.Channel) {

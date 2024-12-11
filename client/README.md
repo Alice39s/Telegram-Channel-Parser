@@ -1,3 +1,3 @@
-# Telegram Channel Praser - Client
+# Telegram Channel Parser - Client
 
 TODO...
